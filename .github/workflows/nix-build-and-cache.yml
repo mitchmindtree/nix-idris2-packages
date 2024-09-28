@@ -83,8 +83,8 @@ jobs:
             flake.lock
             idris2-pack-db/pack-db-resolved.json
           key: ${{ github.run_number }}-${{ github.run_attempt }}
-      - name: Build
-        run: NIXPKGS_ALLOW_UNSUPPORTED_SYSTEM=1 NIXPKGS_ALLOW_BROKEN=1 nix-build --no-out-link --keep-going ./build-all.nix
+      - name: Build all unbroken packdb packages
+        run: NIXPKGS_ALLOW_UNSUPPORTED_SYSTEM=1 NIXPKGS_ALLOW_BROKEN=1 nix build --no-out-link --keep-going .#__allUnbroken
       - name: Ensure Flake idris2, idris2Api, and idris2LSP
         run: |
           nix build .#idris2
