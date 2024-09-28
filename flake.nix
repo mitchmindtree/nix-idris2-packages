@@ -21,46 +21,48 @@
       nixpkgs,
       idris2,
       idris2Lsp,
+      self,
       ...
     }:
     let
+      overlays = [ self.overlays.default ];
       inherit (nixpkgs) lib;
       forEachSystem = lib.genAttrs lib.systems.flakeExposed;
-      ps =
-        withSource:
-        forEachSystem (
-          system:
-          import ./. {
-            pkgs = import nixpkgs { inherit system; };
-            idris2Override = idris2.packages.${system}.idris2;
-            idris2SupportOverride = idris2.packages.${system}.support;
-            idris2LspOverride = idris2Lsp.packages.${system}.idris2Lsp;
-            buildIdrisOverride = idris2.buildIdris.${system};
-            inherit system withSource;
-          }
-        );
+      perSystemPkgs = f: forEachSystem (system: f (import nixpkgs { inherit overlays system; }));
+
+      # Constructor for the packdb package set.
+      mkPackdbPackages =
+        packdbPackages: libAttr:
+        lib.mapAttrs (
+          _n: pkg: if builtins.hasAttr "inferred" pkg then pkg.inferred libAttr else pkg
+        ) packdbPackages;
     in
     {
-      packages = lib.mapAttrs (
-        n: attrs:
-        (
-          attrs.idris2Packages
-          // {
-            inherit (attrs)
-              idris2
-              idris2Lsp
-              idris2Api
-              ;
-          }
-        )
-      ) (ps false);
-      idris2Packages = lib.mapAttrs (n: attrs: attrs.idris2Packages) (ps false);
-      idris2PackagesWithSource = lib.mapAttrs (n: attrs: attrs.idris2Packages) (ps true);
+      # An overlay that:
+      # - replaces `idris2` and related tools with our newer versions and
+      # - provides all `packdb` packages behind `idris2Packages.packdb`.
+      overlays = {
+        default = import ./overlay.nix { inherit idris2 idris2Lsp; };
+      };
 
-      buildIdris = lib.mapAttrs (n: attrs: attrs.buildIdris);
-      buildIdris' = lib.mapAttrs (n: attrs: attrs.buildIdris');
+      # Expose both the idris2 tools and the packdb packages.
+      packages = perSystemPkgs (
+        pkgs:
+        let
+          packdbPackages = mkPackdbPackages pkgs.idris2Packages.packdb { withSource = true; };
+        in
+        {
+          inherit (pkgs.idris2Packages) idris2 idris2Lsp idris2Api;
+        }
+        // packdbPackages
+      );
 
-      formatter = forEachSystem (system: nixpkgs.legacyPackages.${system}.nixfmt-rfc-style);
+      # Custom output that includes:
+      # - `packdb` fns for producing derivations as executable or library, with or without source.
+      # - `buildIdris` fn for building idris2 package derivations.
+      idris2Packages = perSystemPkgs (pkgs: pkgs.idris2Packages);
+
+      formatter = perSystemPkgs (pkgs: pkgs.nixfmt-rfc-style);
 
       impureShell =
         {
@@ -82,7 +84,7 @@
         }:
         nixpkgs.legacyPackages.${system}.callPackage ./ipkg-shell.nix {
           inherit src ipkgName;
-          inherit ((ps true).${system}) buildIdris' idris2 idris2Lsp;
+          inherit (self.idris2PackagesWithSource.${system}) buildIdris' idris2 idris2Lsp;
         };
     };
 }
